@@ -242,6 +242,7 @@ async def pronounce_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info("Voice handler triggered!")
     user_id = update.effective_user.id
     target = pending_pronunciation.get(user_id)
 
