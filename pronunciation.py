@@ -1,6 +1,17 @@
 import os
 import tempfile
 from gtts import gTTS
+from openai import OpenAI
+
+_openai_client = None
+
+
+def get_openai() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _openai_client
+
 
 IRISH_PHONEME_HINTS = {
     "ao": "EE",
@@ -36,12 +47,32 @@ def build_pronunciation_guide(irish_text: str) -> str:
 
 
 def synthesise_irish(text: str) -> str:
-    """Generate Irish audio using gTTS. Returns path to temp .mp3 file."""
     tts = gTTS(text=text, lang="ga", slow=True)
     tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
     tts.save(tmp.name)
     return tmp.name
 
 
+def transcribe_audio(ogg_path: str) -> str:
+    client = get_openai()
+    with open(ogg_path, "rb") as f:
+        result = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f,
+            language="ga"
+        )
+    return result.text.strip()
+
+
 def build_eval_prompt(target_irish: str, transcribed: str) -> str:
-    return ""
+    return f"""The learner was asked to pronounce this Irish phrase:
+Target: "{target_irish}"
+Whisper transcribed their attempt as: "{transcribed}"
+
+Please evaluate their pronunciation:
+1. How close is the transcription to the target? (note: Whisper may not spell Irish perfectly)
+2. Identify specific sounds they likely got right and wrong
+3. Give clear tips using English phonetic approximations (e.g. "the 'bh' sounds like 'V'")
+4. End with an encouraging message and the correct pronunciation guide
+
+Be understanding — Irish pronunciation is genuinely difficult for beginners!"""
