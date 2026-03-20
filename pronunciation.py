@@ -1,17 +1,16 @@
 import os
-import re
 import tempfile
-import whisper
 from gtts import gTTS
+from faster_whisper import WhisperModel
 
-# Load Whisper model once at startup (use "base" for speed, "small" for accuracy)
 _whisper_model = None
 
 
-def get_whisper() -> whisper.Whisper:
+def get_whisper() -> WhisperModel:
     global _whisper_model
     if _whisper_model is None:
-        _whisper_model = whisper.load_model("base")
+        # cpu mode, int8 for low memory usage on free tier
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
     return _whisper_model
 
 
@@ -75,23 +74,16 @@ def synthesise_irish(text: str) -> str:
 # ── Speech-to-Text ────────────────────────────────────────────────────────────
 
 def transcribe_audio(ogg_path: str) -> str:
-    """
-    Transcribe a Telegram voice message (ogg) using Whisper.
-    Returns the transcribed text.
-    """
     model = get_whisper()
-    result = model.transcribe(ogg_path, language="ga")  # hint Irish language
-    return result["text"].strip()
+    segments, _ = model.transcribe(ogg_path, language="ga")
+    return " ".join(s.text for s in segments).strip()
 
 
 def transcribe_audio_english(ogg_path: str) -> str:
-    """
-    Transcribe without language hint — used when learner may mix languages.
-    """
     model = get_whisper()
-    result = model.transcribe(ogg_path)
-    return result["text"].strip()
-
+    segments, _ = model.transcribe(ogg_path)
+    return " ".join(s.text for s in segments).strip()
+    
 
 # ── Pronunciation evaluation prompt ──────────────────────────────────────────
 
