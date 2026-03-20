@@ -59,7 +59,7 @@ def transcribe_audio(ogg_path: str) -> str:
         result = client.audio.transcriptions.create(
             model="whisper-1",
             file=f,
-            language="ga"
+            prompt="Irish Gaeilge"  # hints without forcing language
         )
     return result.text.strip()
 
