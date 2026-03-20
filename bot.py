@@ -17,10 +17,7 @@ from database import (
     save_pronunciation_attempt, get_pronunciation_stats
 )
 from curriculum import CURRICULUM, get_unit, format_curriculum_overview
-from pronunciation import (
-    synthesise_irish, transcribe_audio,
-    build_eval_prompt, build_pronunciation_guide
-)
+from pronunciation import synthesise_irish, build_eval_prompt
 
 load_dotenv()
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -88,14 +85,12 @@ async def set_commands(app):
         BotCommand("translate", "Translate & explain a phrase"),
         BotCommand("chat", "Free conversation in Irish"),
         BotCommand("word", "Word/phrase of the day"),
-        BotCommand("pronounce", "Hear & practise a word's pronunciation"),
+        BotCommand("pronounce", "Hear a word's pronunciation"),
         BotCommand("progress", "View your progress"),
         BotCommand("next", "Advance to next unit"),
         BotCommand("reset", "Clear history"),
     ])
 
-
-# ── Commands ──────────────────────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -229,7 +224,7 @@ async def pronounce_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"🔊 *Pronunciation practice!*\n\n{pron_guide}\n\n"
-        "👂 Now send me a *voice message* saying the phrase and I'll evaluate your pronunciation!",
+        "👂 Listen to the audio below, then try saying it yourself!",
         parse_mode="Markdown"
     )
 
@@ -241,63 +236,6 @@ async def pronounce_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.warning(f"gTTS failed: {e}")
         await update.message.reply_text("_(Audio unavailable for this phrase)_", parse_mode="Markdown")
-
-    pending_pronunciation[user_id] = phrase
-    user_mode[user_id] = "PRONOUNCE"
-
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    target = pending_pronunciation.get(user_id)
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-
-    voice_file = await update.message.voice.get_file()
-    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
-        ogg_path = tmp.name
-    await voice_file.download_to_drive(ogg_path)
-
-    try:
-        transcription = transcribe_audio(ogg_path)
-        os.unlink(ogg_path)
-
-        if not target:
-            await update.message.reply_text(
-                f"🎙️ I heard: _{transcription}_\n\nUse /pronounce to practise a specific word!",
-                parse_mode="Markdown"
-            )
-            return
-
-        eval_prompt = build_eval_prompt(target, transcription)
-        save_message(user_id, "user", eval_prompt)
-        evaluation = claude_reply(user_id, eval_prompt, extra_system="Mode: PRONUNCIATION_EVAL")
-        save_message(user_id, "assistant", evaluation)
-
-        target_clean = target.lower().strip()
-        trans_clean = transcription.lower().strip()
-        if target_clean in trans_clean or trans_clean in target_clean:
-            score = "good"
-        elif any(w in trans_clean for w in target_clean.split()):
-            score = "ok"
-        else:
-            score = "needs_work"
-
-        save_pronunciation_attempt(user_id, target, transcription, score)
-
-        score_emoji = {"good": "🟢", "ok": "🟡", "needs_work": "🔴"}.get(score, "🟡")
-        await update.message.reply_text(
-            f"🎙️ I heard: _{transcription}_\n{score_emoji}\n\n{evaluation}",
-            parse_mode="Markdown"
-        )
-
-        pending_pronunciation.pop(user_id, None)
-        user_mode[user_id] = "CHAT"
-
-    except Exception as e:
-        logging.error(f"Voice handling error: {e}")
-        if os.path.exists(ogg_path):
-            os.unlink(ogg_path)
-        await update.message.reply_text("⚠️ Couldn't process your voice message. Please try again.")
 
 
 async def progress_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -325,15 +263,6 @@ async def progress_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append(f"\n*Overall: {pct}% complete*")
     bar = "🟩" * (pct // 10) + "⬜" * (10 - pct // 10)
     lines.append(bar)
-
-    pron_stats = get_pronunciation_stats(user_id)
-    if pron_stats:
-        good = pron_stats.get("good", 0)
-        ok = pron_stats.get("ok", 0)
-        needs = pron_stats.get("needs_work", 0)
-        total_attempts = good + ok + needs
-        lines.append(f"\n🎙️ *Pronunciation attempts:* {total_attempts}")
-        lines.append(f"🟢 Good: {good}  🟡 OK: {ok}  🔴 Needs work: {needs}")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -432,7 +361,6 @@ def main():
     app.add_handler(CommandHandler("progress", progress_cmd))
     app.add_handler(CommandHandler("next", next_cmd))
     app.add_handler(CommandHandler("reset", reset_cmd))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.job_queue.run_daily(daily_word_job, time=time(hour=9, minute=0))
