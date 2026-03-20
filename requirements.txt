@@ -4,3 +4,4 @@ python-dotenv==1.0.0
 gTTS==2.5.1
 openai-whisper==20231117
 ffmpeg-python==0.2.0
+setuptools
